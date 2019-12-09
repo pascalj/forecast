@@ -1,0 +1,53 @@
+option(ENABLE_FPGA "Build FPGA-based algorithms" ON)
+if(${ENABLE_FPGA})
+    if(EXISTS $ENV{INTELFPGAOCLSDKROOT})
+        set(AOCL_SDK_ROOT "$ENV{INTELFPGAOCLSDKROOT}"
+            CACHE FILEPATH "Intel SDK root directory")
+    endif()
+    if("${AOCL_SDK_ROOT}")
+        message(SEND_ERROR "Cannot find Intel OpenCL SDK")
+        set(ENABLE_FPGA OFF)
+    else()
+        execute_process(COMMAND ${AOCL_SDK_ROOT}/bin/aocl compile-config
+            OUTPUT_VARIABLE AOCL_COMPILE_CONFIG)
+        execute_process(COMMAND ${AOCL_SDK_ROOT}/bin/aocl link-config
+            OUTPUT_VARIABLE AOCL_LINK_CONFIG)
+        string(REGEX REPLACE "\n$" "" AOCL_COMPILE_CONFIG "${AOCL_COMPILE_CONFIG}")
+        string(REGEX REPLACE "\n$" "" AOCL_LINK_CONFIG "${AOCL_LINK_CONFIG}")
+
+        string(REGEX MATCHALL "-l([^ ]*)" AOCL_LIBRARIES "${AOCL_LINK_CONFIG}")
+        string(REGEX MATCHALL "-L([^ ]*)" AOCL_LINK_SEARCH "${AOCL_LINK_CONFIG}")
+        string(REGEX REPLACE "-l([^;]*)" "\\1" AOCL_LIBRARIES "${AOCL_LIBRARIES}")
+        string(REGEX REPLACE "-L([^;]*)" "\\1" AOCL_LINK_SEARCH "${AOCL_LINK_SEARCH}")
+
+        foreach(LIB ${AOCL_LIBRARIES})
+            unset(LIB_PATH)
+            foreach(LOC ${AOCL_LINK_SEARCH})
+                if(NOT "${LIB_PATH}")
+                    find_library(LIB_PATH ${LIB} PATHS ${LOC} NO_DEFAULT_PATH)
+                endif()
+                if(NOT "${LIB_PATH}" AND EXISTS "${LOC}/lib${LIB}.so")
+                    set(LIB_PATH "${LOC}/lib${LIB}.so")
+                endif()
+            endforeach()
+            if(NOT EXISTS "${LIB_PATH}")
+                message(SEND_ERROR "Cannot find Intel CL library: ${LIB}")
+            endif()
+            list(APPEND AOCL_LINK_LIBRARIES ${LIB_PATH})
+        endforeach()
+
+        # Make sure include files are where we expect
+        message(STATUS "Sanity-checking Intel SDK installation...")
+        if(NOT EXISTS ${AOCL_SDK_ROOT}/host/include/CL/cl.h)
+            message(WARNING "${BRed}Cannot find Intel host SDK (cl.h)${ClrNone}"
+                "\nTo enable FPGA support, fix this and reconfigure.")
+            set(ENABLE_FPGA OFF)
+        elseif(NOT EXISTS ${AOCL_SDK_ROOT}/host/include/CL/cl.h)
+            message(WARNING "Cannot find Intel host SDK (cl.h)"
+                "\nTo enable FPGA support, fix this and reconfigure.")
+            set(ENABLE_FPGA OFF)
+        else()
+            message(STATUS "${Green}Intel SDK installation looks good${ClrNone}")
+        endif()
+    endif()
+endif()
