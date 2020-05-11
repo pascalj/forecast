@@ -6,29 +6,34 @@
 
 static void TestFunc(benchmark::State& state)
 {
-  auto                 ctx         = get_device_context();
-  auto                 queue       = get_command_queue(ctx);
-  auto                 device      = get_device(ctx);
-  auto                 binary      = read_file("../kernels/hello_world.aocx");
-  const unsigned char* binary_data = binary.data();
-  auto                 binary_size = binary.size();
-  cl_int               err;
+  auto                    device = get_device();
+  std::vector<cl::Device> devices{device};
+  auto                    ctx         = cl::Context(device);
+  auto                    queue       = cl::CommandQueue(ctx);
+  auto                    binary = read_file("../kernels/hello_world.aocx");
+  // Mhhh if only there was something that can hold a pointer and a size
+  // already in the stdlib...
+  auto binary_pair = std::make_pair(binary.data(), binary.size());
+  cl::Program::Binaries binaries{binary_pair};
 
-  auto program = clCreateProgramWithBinary(
-      ctx, 1, &device, &binary_size, &binary_data, NULL, &err);
-  cl_ok(err);
+  debug("Finished initialization");
+
+
+  auto program = cl::Program(ctx, devices, binaries);
+
+  debug("Created program from binary");
 
   cl_int thread_id = 1;
 
-  cl_assert(clBuildProgram(program, 1, &device, NULL, NULL, NULL));
-  cl_kernel kernel = clCreateKernel(program, "hello_world", &err);
-  cl_ok(err);
-  cl_assert(clSetKernelArg(kernel, 0, sizeof(cl_int), &thread_id));
+  program.build();
+  auto kernel = cl::Kernel(program, "hello_world");
+  kernel.setArg(0, thread_id);
 
-  cl_event kernel_done;
+  std::vector <cl::Event> kernel_events;
+
   for (auto _ : state) {
-    cl_assert(clEnqueueTask(queue, kernel, 0, NULL, &kernel_done));
-    clFinish(queue);
+    queue.enqueueTask(kernel, &kernel_events);
+    queue.finish();
   }
 }
 
