@@ -2,7 +2,7 @@
 #include <util.h>
 #include <benchmark/benchmark.h>
 
-#include <benchmarks/test.h>
+#include <benchmarks/reconfigure.h>
 
 int main(int argc, char **argv) {
   spdlog::set_pattern("[%H:%M:%S] [%^%L%$] %v");
