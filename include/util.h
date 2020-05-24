@@ -8,6 +8,7 @@
 #include <log.h>
 
 struct Binary {
+  Binary() = default;
   Binary(const char *path) {
     std::ifstream in(path, std::ios::binary);
     std::vector<unsigned char> bytes_vec(std::istreambuf_iterator<char>(in), {});
