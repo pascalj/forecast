@@ -11,7 +11,7 @@ all: $(objects)
 
 simulator: report
 
-report: AOCFLAGS += -march=simulator -report -rtl
+report: AOCFLAGS += -march=simulator -report -rtl -g
 report: $(patsubst %.aocx,%.aocr,$(objects))
 
 
