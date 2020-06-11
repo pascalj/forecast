@@ -34,5 +34,5 @@ clean:
 	rm -f *.aoco *.aocr *.aocx
 	rm -rf $(patsubst %.cl,%,$(kernels))
 
-dist-clean: clean
+distclean: clean
 	find . -mindepth 1 -maxdepth 1 -type d -exec rm -r {} +

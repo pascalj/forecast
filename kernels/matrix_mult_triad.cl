@@ -100,7 +100,7 @@
 #endif
 
 __kernel 
-__attribute((num_compute_units(1)))
+__attribute((num_compute_units(2)))
 __attribute((reqd_work_group_size(BLOCK_SIZE,BLOCK_SIZE,1)))
 __attribute((num_simd_work_items(SIMD_WORK_ITEMS)))
 void matrixMult( // Input and output matrices
@@ -165,4 +165,17 @@ void matrixMult( // Input and output matrices
 
     // Store result in matrix C
     C[get_global_id(1) * get_global_size(0) + get_global_id(0)] = running_sum;
+}
+
+// vector triad kernel
+ __kernel void vector_triad(
+    __global float* restrict A,
+    __global float* restrict B,
+    __global float* restrict C,
+    __global float* restrict D,
+    unsigned long            size)
+{
+  for (unsigned long i = 0; i < size; i++) {
+    A[i] = B[i] * C[i] + D[i];
+  }
 }

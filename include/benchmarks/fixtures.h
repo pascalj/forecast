@@ -16,6 +16,9 @@ public:
 
   void TearDown(const ::benchmark::State&) {
     queue.finish();
+    kernels.clear();
+    programs.clear();
+    binaries.clear();
   }
 
   cl::Kernel& kernel(const std::string& prog, const std::string& kern_name) {
@@ -33,7 +36,7 @@ public:
       return programs[prog_name];
     }
     cl::Program prg(ctx, devices, binary(prog_name).cl_binaries());
-    prg.build(); //no op
+    cl_ok(prg.build()); //no op
     programs.insert(std::make_pair(prog_name, prg));
     return programs[prog_name];
   }
@@ -52,8 +55,87 @@ public:
   std::vector<cl::Device> devices;
   cl::Context ctx;
   cl::CommandQueue queue;
-  std::unordered_map<std::string, Binary> binaries;
+  std::unordered_map<std::string, Binary>      binaries;
   std::unordered_map<std::string, cl::Program> programs;
-  std::unordered_map<std::string, cl::Kernel> kernels;
+  std::unordered_map<std::string, cl::Kernel>  kernels;
 };
 
+template<typename T, cl_mem_flags mode = CL_MEM_READ_WRITE>
+struct Buffer {
+  Buffer(const cl::Context& ctx, size_t size)
+    : size(size), buf(ctx, mode, size * sizeof(T))
+  {
+  }
+
+  Buffer(const Buffer&) = delete;
+  Buffer& operator=(const Buffer&) & = delete;
+  Buffer(Buffer&&) noexcept          = default;
+  Buffer& operator=(Buffer&&) noexcept = default;
+
+  void fill(const cl::CommandQueue& queue, T init) const
+  {
+    std::vector<T> host_buf(size, init);
+    // Note: we should be able to use enqueueFillBuffer here, but the
+    // implementation segfauls. See Intel KBD article about enqueueFillBuffer.
+    cl_ok(queue.enqueueWriteBuffer(
+        buf, CL_TRUE, 0, size * sizeof(T), host_buf.data()));
+  }
+
+  template <typename Func>
+  bool validate(const cl::CommandQueue& queue, Func&& func) const
+  {
+    std::vector<T> host_copy(size);
+    cl_ok(cl::copy(queue, buf, host_copy.begin(), host_copy.end()));
+    return std::all_of(host_copy.begin(), host_copy.end(), func);
+  }
+
+  size_t     size;
+  cl::Buffer buf;
+};
+
+template<size_t n_bufs, typename T>
+struct Buffers {
+  Buffers(const cl::Context& ctx, size_t size)
+  {
+    bufs.reserve(n_bufs);
+    for(size_t i = 0; i < n_bufs; i++) {
+      bufs.emplace_back(ctx, size);
+    }
+  }
+
+  Buffers(const Buffers&) = delete;
+  Buffers& operator=(const Buffers&) & = delete;
+  Buffers(Buffers&&) noexcept          = default;
+  Buffers& operator=(Buffers&&) noexcept = default;
+
+  void fill_all(
+      const cl::CommandQueue& queue, const std::array<T, n_bufs>&& vals)
+  {
+    for (size_t i = 0; i < n_bufs; i++) {
+      bufs[i].fill(queue, vals[i]);
+    }
+  }
+
+  auto begin() const {
+    return bufs.begin();
+  }
+
+  auto end() const {
+    return bufs.end();
+  }
+
+  Buffer<T>& operator[](size_t n) {
+    return bufs[n];
+  }
+
+  std::vector<Buffer<T>> bufs;
+};
+
+template <size_t N, typename T>
+void set_bufs_as_args(cl::Kernel& kernel, const Buffers<N, T>& bufs)
+{
+  int i = 0;
+  std::for_each(bufs.begin(), bufs.end(), [&kernel, &i](const auto& buffer) {
+    cl_ok(kernel.setArg(i++, buffer.buf));
+  });
+}
