@@ -4,6 +4,7 @@
 #include <benchmarks/fixtures.h>
 #include <log.h>
 #include <util.h>
+#include <forecast/queue.h>
 
 // Benchmarks for copying data from/to the FPGA
 BENCHMARK_DEFINE_F(BasicKernelFixture, VectorTriad)(benchmark::State& state)
@@ -223,6 +224,69 @@ static void MatrixTriadRanges(benchmark::internal::Benchmark* b)
   for (int i = triad_from; i <= triad_to; i *= 2) b->Args({64, i});
   for (int i = triad_from; i <= triad_to; i *= 2)
     for (int j = matrix_from; j <= matrix_to; j *= 2) b->Args({j, i});
+}
+
+/**
+ * Combined, parallel, queued
+ *
+ * Note that block_size must match the one in the cl file.
+ */
+BENCHMARK_DEFINE_F(BasicKernelFixture, MatrixMultTriadQueue)(benchmark::State& state)
+{
+  using value_t            = float;
+  const size_t  N          = state.range(0);
+  const size_t  triad_size = state.range(1);
+  constexpr int block_size = 64;  // must match .cl file
+
+  assert(N % block_size == 0);
+
+  Buffers<3, value_t> mbuf(ctx, N * N);
+  Buffers<4, value_t> tbuf(ctx, triad_size);
+  mbuf.fill_all(queue, {0, 2, 3});
+  tbuf.fill_all(queue, {0, 2, 3, 4});
+
+  auto mmult = kernel("matrix_mult_triad", "matrixMult");
+  auto triad = kernel("matrix_mult_triad", "vector_triad");
+
+  const cl::NDRange global_work_size(N, N);
+  const cl::NDRange local_work_size(block_size, block_size);
+  cl::CommandQueue other_queue(ctx);
+
+  std::chrono::duration<double, std::milli> triad_duration{0};
+
+  for (auto _ : state) {
+    cl::Event mmult_done, triad_done;
+    set_bufs_as_args(mmult, mbuf);
+    set_bufs_as_args(triad, tbuf);
+    mmult.setArg(3, static_cast<int>(N));
+    mmult.setArg(4, static_cast<int>(N));
+    triad.setArg(4, triad_size);
+    queue.enqueueNDRangeKernel(
+        mmult,
+        cl::NullRange,
+        global_work_size,
+        local_work_size,
+        NULL,
+        std::addressof(mmult_done));
+    other_queue.enqueueTask(triad, NULL, std::addressof(triad_done));
+    auto start = std::chrono::high_resolution_clock::now();
+    triad_done.wait();
+    auto end = std::chrono::high_resolution_clock::now();
+    triad_duration += end - start;
+    mmult_done.wait();
+  }
+
+  const unsigned long long flops = N * N * N * 2 * state.iterations();
+  state.counters["FLOPs"] =
+      benchmark::Counter(flops, benchmark::Counter::kIsRate);
+  state.counters["triad_Time"] =
+      benchmark::Counter(triad_duration.count() / state.iterations());
+
+  const auto valid = mbuf[0].validate(
+      queue, [N](const auto& val) { return val == 2 * 3 * N; });
+  if(!valid) {
+    state.SkipWithError("Validation failed.");
+  }
 }
 
 BENCHMARK_REGISTER_F(BasicKernelFixture, VectorTriad)
