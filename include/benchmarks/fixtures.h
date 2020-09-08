@@ -1,6 +1,7 @@
 #pragma once
 
 #include <benchmark/benchmark.h>
+#include <forecast/configuration.h>
 #include <log.h>
 #include <util.h>
 #include <unordered_map>
@@ -58,6 +59,22 @@ public:
   std::unordered_map<std::string, Binary>      binaries;
   std::unordered_map<std::string, cl::Program> programs;
   std::unordered_map<std::string, cl::Kernel>  kernels;
+};
+
+class ConfigFixture : public benchmark::Fixture {
+public:
+  ConfigFixture() : ctx(get_devices().front()), queue(ctx) {}
+
+  void SetUp(const ::benchmark::State&) {
+  }
+
+  void TearDown(const ::benchmark::State&) {
+    queue.finish();
+  }
+
+  std::vector<forecast::Configuration> configs;
+  cl::Context                          ctx;
+  cl::CommandQueue                     queue;
 };
 
 template<typename T, cl_mem_flags mode = CL_MEM_READ_WRITE>
