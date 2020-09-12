@@ -10,13 +10,13 @@ class Queue;
 
 class Model {
 public:
-  Model(Parameters params)
-    : _params(params)
+  Model(const std::string &name)
+    : _name(name)
   {
   }
 
   float cost(const Task &) const {
-    return _params.dummy;
+    return 1.337f;
   }
 
   template<typename Tasks>
@@ -28,6 +28,7 @@ public:
         [this](float accum, auto &t) { return accum + cost(t); });
   }
 
-  Parameters _params;
+private:
+  std::string _name;
 };
 }

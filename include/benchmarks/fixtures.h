@@ -2,6 +2,7 @@
 
 #include <benchmark/benchmark.h>
 #include <forecast/configuration.h>
+#include <forecast/scheduler.h>
 #include <log.h>
 #include <util.h>
 #include <unordered_map>
@@ -10,7 +11,7 @@
 
 class BasicKernelFixture : public benchmark::Fixture {
 public:
-  BasicKernelFixture() : devices(get_devices()), ctx(devices.front()), queue(ctx) {}
+  BasicKernelFixture() : devices(get_devices()), ctx(devices.front()), queue(ctx), scheduler(&ctx) {}
 
   void SetUp(const ::benchmark::State&) {
   }
@@ -56,6 +57,7 @@ public:
   std::vector<cl::Device> devices;
   cl::Context ctx;
   cl::CommandQueue queue;
+  forecast::Scheduler scheduler;
   std::unordered_map<std::string, Binary>      binaries;
   std::unordered_map<std::string, cl::Program> programs;
   std::unordered_map<std::string, cl::Kernel>  kernels;

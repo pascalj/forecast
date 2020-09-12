@@ -1,4 +1,5 @@
 #include <log.h>
+#include "spdlog/cfg/argv.h"
 #include <util.h>
 #include <benchmark/benchmark.h>
 
@@ -9,7 +10,7 @@
 
 int main(int argc, char **argv) {
   spdlog::set_pattern("[%H:%M:%S] [%^%L%$] %v");
-  spdlog::set_level(spdlog::level::warn);
+  spdlog::cfg::load_argv_levels(argc, argv);
   benchmark::Initialize(&argc, argv);
   benchmark::RunSpecifiedBenchmarks();
 }
