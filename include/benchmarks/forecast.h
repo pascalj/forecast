@@ -27,7 +27,7 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, ForecastTriad)(benchmark::State& state)
   };
 
   for (auto _ : state) {
-    for(int i = 0; i < 10; i++) {
+    for(int i = 0; i < 20; i++) {
       scheduler.add_task("vector_triad1", create_kernel);
     }
     scheduler.finish();
