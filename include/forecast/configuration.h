@@ -50,6 +50,10 @@ public:
     return _queues;
   }
 
+  std::string bitstream() const {
+    return _bitstream;
+  }
+
 private:
 
   Binary& binary() {

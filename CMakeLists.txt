@@ -17,7 +17,7 @@ include("cmake/SetupFPGA.cmake")
 set(OPENCL_INCLUDE_DIRECTORY $ENV{INTELFPGAOCLSDKROOT}/host/include)
 
 add_executable(run_all bin/run_all.cpp)
-target_compile_features(run_all PUBLIC cxx_std_14)
+target_compile_features(run_all PUBLIC cxx_std_17)
 target_compile_options(run_all PRIVATE -Wall -Wextra)
 target_link_libraries(run_all PUBLIC spdlog::spdlog benchmark::benchmark ${AOCL_LINK_LIBRARIES})
 target_include_directories(run_all PUBLIC ${OPENCL_INCLUDE_DIRECTORY})
