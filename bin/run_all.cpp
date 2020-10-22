@@ -7,9 +7,10 @@
 #include <benchmarks/performance.h>
 #include <benchmarks/reconfigure.h>
 #include <benchmarks/forecast.h>
+#include <benchmarks/fft.h>
 
 int main(int argc, char **argv) {
-  spdlog::set_pattern("[%H:%M:%S] [%^%L%$] %v");
+  spdlog::set_pattern("[%H:%M:%S] [%^%L%$] [%t] %v");
   spdlog::cfg::load_argv_levels(argc, argv);
   benchmark::Initialize(&argc, argv);
   benchmark::RunSpecifiedBenchmarks();

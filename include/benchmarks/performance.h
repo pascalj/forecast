@@ -111,10 +111,18 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, MatrixMult)(benchmark::State& state)
   Buffers<3, value_t> buffers(ctx, N * N);
   buffers.fill_all(queue, {0, 2, 3});
 
-  auto kern = kernel("matrix_mult", "matrixMult");
+  auto kern = kernel("mmult_f_d2", "matrixMult");
+
+  forecast::Model model("mmult_f_d2");
 
   const cl::NDRange global_work_size(N, N);
   const cl::NDRange local_work_size(block_size, block_size);
+  forecast::Task    task{
+      "matrixMult",
+      forecast::KernelGen{},
+      forecast::TaskDims{global_work_size, local_work_size}};
+
+  warn("Cost: {} s", model.cost(task));
 
   for (auto _ : state) {
     cl::Event kernel_done;
@@ -299,7 +307,8 @@ BENCHMARK_REGISTER_F(BasicKernelFixture, VectorTriadParallel)
 BENCHMARK_REGISTER_F(BasicKernelFixture, MatrixMult)
     ->RangeMultiplier(2)
     ->Range(64, 64 << 7)
-    ->Unit(benchmark::kMillisecond);
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
 BENCHMARK_REGISTER_F(BasicKernelFixture, MatrixMultTriad)
     ->Apply(MatrixTriadRanges)
     ->Unit(benchmark::kMillisecond);

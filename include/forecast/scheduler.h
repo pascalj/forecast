@@ -27,30 +27,37 @@ public:
 
   void add_config(const std::string &bitstream)
   {
-    if (std::none_of(
-            _configs.begin(),
-            _configs.end(),
-            [&bitstream](const auto& config) {
-              return config.bitstream() == bitstream;
-            })) {
-      _configs.emplace_back(bitstream, _ctx);
+    _configs.try_emplace(bitstream, bitstream, _ctx);
+    if(_configs.size() == 1) {
+      _current_config = std::addressof(_configs.begin()->second);
     }
   }
 
-  void add_task(const std::string kernel, KernelGen creator)
+  void add_task(Task &&task)
   {
     const auto task_id = _current_id++;
-    Task task(task_id, kernel, creator);
-    task.scheduler = this;
-    auto queue     = _queues.try_emplace(
-        kernel,
-        cl::CommandQueue(*_ctx),
-        std::addressof(current_config().program()));
-    queue.first->second.enqueue(std::move(task));
+    task.set_id(task_id);
+    task.set_scheduler(this);
+    auto& queue     = _queues
+                      .try_emplace(
+                          task.function_name(),
+                          *_ctx,
+                          std::addressof(current_config().program()))
+                      .first->second;
+    queue.enqueue(std::move(task));
+    print_costs();
   }
 
-  Configuration& current_config() {
-    return _configs[_current_config];
+  Configuration& current_config()
+  {
+    return *_current_config;
+  }
+
+  void set_config(const std::string &name) {
+    _current_config = std::addressof(_configs.at(name));
+    for (auto &queue : _queues) {
+      queue.second.set_program(std::addressof(_current_config->program()));
+    }
   }
 
   void wait() {
@@ -71,11 +78,22 @@ public:
         });
   }
 
+  void print_costs() const {
+    for(auto& config : _configs) {
+      Model model{config.first};
+      float cost = 0;
+      for(auto& queue : _queues) {
+        cost += model.cost(queue.second.tasks());
+      }
+      info("Cost {}: {}", config.first, cost);
+    }
+  }
+
 private:
-  cl::Context*                 _ctx;
-  std::vector<Configuration>   _configs;
-  std::size_t                  _current_config;
-  uint64_t                     _current_id;
-  std::map<std::string, Queue> _queues;
+  cl::Context*                         _ctx;
+  std::map<std::string, Configuration> _configs;
+  Configuration*                       _current_config;
+  uint64_t                             _current_id;
+  std::map<std::string, Queue>         _queues;
 };
 }

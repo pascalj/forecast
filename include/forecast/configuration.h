@@ -15,7 +15,7 @@ public:
   Configuration() = delete;
   Configuration(const std::string& bitstream, cl::Context* ctx)
     : _bitstream(bitstream)
-    , _model(bitstream)
+    , _model(_bitstream)
     , _ctx(ctx)
     , devices(get_devices())
   {

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "task.h"
-#include "model.h"
 
 #include <CL/cl.hpp>
 #include <condition_variable>
@@ -12,13 +11,12 @@
 
 namespace forecast {
 
-
 class Queue {
 public:
-  Queue(const cl::CommandQueue& command_queue, cl::Program* program)
+  Queue(const cl::Context& ctx, cl::Program* program)
     : _program(program)
     , _thread(std::bind(&Queue::queue_loop, this))
-    , _command_queue(command_queue)
+    , _command_queue(cl::CommandQueue(ctx))
   {
   }
   Queue(cl::CommandQueue&& command_queue) = delete;
@@ -26,7 +24,7 @@ public:
 
   void enqueue(Task &&task) {
     assert(!_finished);
-    info("Task {} ({}) in", task.function_name(), task.id());
+    debug("-> Task {} ({})", task.function_name(), task.id());
     {
       std::lock_guard<std::mutex> lg(_m);
       _tasks.push_back(task);
@@ -62,16 +60,18 @@ public:
       }
       auto& task  = _tasks.front();
       auto& event = pass_to_cl(task);
+      debug("Task {} started.", task.id());
       _working    = true;
       lk.unlock();
 
       event.wait();
-      info("Task {} finished.", task.id());
+      debug("Task {} finished.", task.id());
 
       {
         std::lock_guard<std::mutex> lg(_m);
         _working = false;
         _tasks.pop_front();
+        debug("<- Task {}", task.id());
       }
       _cv.notify_all();
     }
@@ -79,6 +79,10 @@ public:
 
   std::size_t size() const {
     return _tasks.size();
+  }
+
+  const Tasks &tasks() const {
+    return _tasks;
   }
 
   ~Queue() {
@@ -90,9 +94,13 @@ private:
     auto& kernel = task.generate_kernel(*_program);
     auto& kernel_done = task.kernel_done();
     task.enqueued_now();
-    cl_ok(_command_queue.enqueueTask(
-        kernel, NULL, std::addressof(kernel_done)));
-    _command_queue.flush();
+    cl_ok(_command_queue.enqueueNDRangeKernel(
+        kernel,
+        task.offset(),
+        task.global(),
+        task.local(),
+        NULL,
+        std::addressof(kernel_done)));
     return kernel_done;
   }
 

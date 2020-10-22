@@ -4,19 +4,23 @@
 #include "parameters.h"
 
 #include <numeric>
+#include <iostream>
 
 namespace forecast {
 class Queue;
 
 class Model {
 public:
-  Model(const std::string &name)
-    : _name(name)
+  Model(const std::string &config)
+    : _config(config)
   {
   }
 
-  float cost(const Task &) const {
-    return 1.337f;
+  float cost(const Task &task) const {
+    auto       params = kernel_params(_config, task.function_name());
+    const auto total = task.global()[0] * task.global()[1];
+    float      cost   = 0.0001 + (params.flop(total) / params.max_flops());
+    return cost;
   }
 
   template<typename Tasks>
@@ -29,6 +33,6 @@ public:
   }
 
 private:
-  std::string _name;
+  std::string _config;
 };
 }
