@@ -6,6 +6,17 @@
 #include <util.h>
 #include <forecast/queue.h>
 
+BENCHMARK_DEFINE_F(BasicKernelFixture, Empty)(benchmark::State& state)
+{
+  auto empty = kernel("empty", "empty");
+
+  for (auto _ : state) {
+    cl::Event kernel_done;
+    queue.enqueueTask(empty, NULL, &kernel_done);
+    kernel_done.wait();
+  }
+}
+
 // Benchmarks for copying data from/to the FPGA
 BENCHMARK_DEFINE_F(BasicKernelFixture, VectorTriad)(benchmark::State& state)
 {
@@ -297,6 +308,8 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, MatrixMultTriadQueue)(benchmark::State& s
   }
 }
 
+BENCHMARK_REGISTER_F(BasicKernelFixture, Empty)
+    ->Unit(benchmark::kMicrosecond);
 BENCHMARK_REGISTER_F(BasicKernelFixture, VectorTriad)
     ->RangeMultiplier(2)
     ->Range(1 << 5, 1 << 22)

@@ -11,12 +11,15 @@
 
 namespace forecast {
 
+using TaskCallback = std::function<void(Task)>;
+
 class Queue {
 public:
-  Queue(const cl::Context& ctx, cl::Program* program)
+  Queue(const cl::Context& ctx, cl::Program* program, TaskCallback &&clb)
     : _program(program)
     , _thread(std::bind(&Queue::queue_loop, this))
     , _command_queue(cl::CommandQueue(ctx))
+    , _clb(std::move(clb))
   {
   }
   Queue(cl::CommandQueue&& command_queue) = delete;
@@ -50,27 +53,31 @@ public:
     _cv.notify_all();
   }
 
-
   void queue_loop() {
     while(not _finished) {
       std::unique_lock<std::mutex> lk(_m);
-      _cv.wait(lk, [this]() { return not _working && (_tasks.size() > 0 || _finished); });
+      _cv.wait(lk, [this]() {
+        return not _working && (_tasks.size() > 0 || _finished);
+      });
       if (_finished && _tasks.size() == 0) {
         return;
       }
       auto& task  = _tasks.front();
       auto& event = pass_to_cl(task);
       debug("Task {} started.", task.id());
-      _working    = true;
+      _working = true;
       lk.unlock();
 
       event.wait();
-      debug("Task {} finished.", task.id());
+
 
       {
         std::lock_guard<std::mutex> lg(_m);
-        _working = false;
+        auto finished_task = std::move(_tasks.front());
+        finished_task.finished_now();
         _tasks.pop_front();
+        _clb(finished_task);
+        _working = false;
         debug("<- Task {}", task.id());
       }
       _cv.notify_all();
@@ -113,5 +120,6 @@ private:
   bool                    _finished = false;
   bool                    _working = false;
   Tasks                   _tasks;
+  TaskCallback            _clb;
 };
 }

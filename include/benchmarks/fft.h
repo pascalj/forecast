@@ -90,7 +90,6 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, FFT1D)(benchmark::State& state)
                        fft_iterations * state.iterations();
 
   // Pick randomly a few iterations and check SNR
-
   double fpga_snr = 200;
   for (size_t i = 0; i < fft_iterations; i+= rand() % 20 + 1) {
     fourier_transform_gold(inverse, 12, h_verify + coord(i, 0));
@@ -187,6 +186,6 @@ int coord(int iteration, int i) {
 
 BENCHMARK_REGISTER_F(BasicKernelFixture, FFT1D)
     ->RangeMultiplier(2)
-    ->Range(1 << 5, 1 << 15)
+    ->Range(1 << 2, 1 << 15)
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();

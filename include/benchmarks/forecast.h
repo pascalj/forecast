@@ -46,7 +46,6 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, ForecastTriad)(benchmark::State& state)
 
 BENCHMARK_DEFINE_F(BasicKernelFixture, ForecastMmult)(benchmark::State& state)
 {
-
   using value_t            = float;
   const size_t  N          = state.range(0);
   constexpr int block_size = 64;  // must match .cl file
@@ -59,37 +58,37 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, ForecastMmult)(benchmark::State& state)
   scheduler.add_config("mmult_f_d2");
   scheduler.add_config("mmult_f_d");
 
-  forecast::KernelGen create_mmult = [&buffers, N](const cl::Program &prg, const std::string &kernel_name) {
-    int err = 0;
-    cl::Kernel kernel(prg, kernel_name.c_str(), &err);
-    set_bufs_as_args(kernel, buffers);
-    kernel.setArg(3, static_cast<int>(N));
-    kernel.setArg(4, static_cast<int>(N));
-    return kernel;
-  };
+  forecast::KernelGen create_mmult =
+      [&buffers, N](const cl::Program& prg, const std::string& kernel_name) {
+        int        err = 0;
+        cl::Kernel kernel(prg, kernel_name.c_str(), &err);
+        set_bufs_as_args(kernel, buffers);
+        kernel.setArg(3, static_cast<int>(N));
+        kernel.setArg(4, static_cast<int>(N));
+        return kernel;
+      };
 
-  const cl::NDRange global_work_size(N, N);
   const cl::NDRange local_work_size(block_size, block_size);
-
-
   for (auto _ : state) {
-    for(int i = 0; i < 10; i++) {
+    for (int a = 0; a < 10; a++) {
+    for (int i = 0; i < 5; i++) {
+      const cl::NDRange global_work_size(
+          N / std::pow(2, i), N / std::pow(2, i));
       scheduler.add_task(forecast::Task{
           "matrixMult",
           create_mmult,
           forecast::TaskDims{global_work_size, local_work_size}});
     }
+    }
     scheduler.wait();
-    warn("done");
   }
 
   const unsigned long long flops = N * N * N * 2 * state.iterations() * 10;
   state.counters["FLOPs"] =
       benchmark::Counter(flops, benchmark::Counter::kIsRate);
 
-  bool valid = buffers[0].validate(queue, [N] (const auto& val) {
-    return val == 6 * N;
-  });
+  bool valid = buffers[0].validate(
+      queue, [N](const auto& val) { return val == 6 * N; });
   if (!valid) {
     state.SkipWithError("Validation failed.");
   }

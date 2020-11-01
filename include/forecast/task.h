@@ -36,7 +36,8 @@ public:
       const std::string& function_name,
       KernelGen          kernel_gen,
       TaskDims           dims = TaskDims())
-    : _function_name(function_name)
+    : _created_at(Clock::now()) // we construct the task in-place
+    , _function_name(function_name)
     , _kernel_gen(kernel_gen)
     , _dims(dims)
   {
@@ -50,14 +51,6 @@ public:
   void set_id(uint64_t new_id)
   {
     _id = new_id;
-  }
-
-  const Scheduler& scheduler() {
-    return *_scheduler;
-  }
-
-  void set_scheduler(Scheduler *new_sched) {
-    _scheduler = new_sched;
   }
 
   cl::Kernel& kernel()
@@ -106,6 +99,10 @@ public:
     return _dims.local;
   }
 
+  std::chrono::duration<double> duration() const {
+    return _finished_at - _enqueued_at;
+  }
+
 private:
   uint64_t    _id;
   TimePoint   _created_at;
@@ -116,7 +113,6 @@ private:
   std::string _function_name;
   KernelGen   _kernel_gen;
   TaskDims    _dims;
-  Scheduler*  _scheduler;
 };
 
 using Tasks = std::deque<Task>;
