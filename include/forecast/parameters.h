@@ -2,14 +2,13 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cassert>
 #include <functional>
 #include <map>
 
 #define GFLOPS * static_cast<std::size_t>(1000000000)
 
 namespace forecast {
-struct KernelParams;
-
 
 struct KernelParams {
   KernelParams() = default;

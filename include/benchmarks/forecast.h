@@ -7,7 +7,7 @@
 #include <forecast/scheduler.h>
 
 // Benchmark overhead of forecast
-BENCHMARK_DEFINE_F(BasicKernelFixture, ForecastTriad)(benchmark::State& state)
+BENCHMARK_DEFINE_F(ForecastFixture, Triad)(benchmark::State& state)
 {
   using value_t   = float;
   size_t buf_size = state.range(0);
@@ -44,7 +44,7 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, ForecastTriad)(benchmark::State& state)
   }
 }
 
-BENCHMARK_DEFINE_F(BasicKernelFixture, ForecastMmult)(benchmark::State& state)
+BENCHMARK_DEFINE_F(ForecastFixture, Mmult)(benchmark::State& state)
 {
   using value_t            = float;
   const size_t  N          = state.range(0);
@@ -71,9 +71,9 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, ForecastMmult)(benchmark::State& state)
   const cl::NDRange local_work_size(block_size, block_size);
   for (auto _ : state) {
     for (int a = 0; a < 10; a++) {
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < static_cast<int>(N) / 64; i++) {
       const cl::NDRange global_work_size(
-          N / std::pow(2, i), N / std::pow(2, i));
+          N - 64 * i, N - 64 * i);
       scheduler.add_task(forecast::Task{
           "matrixMult",
           create_mmult,
@@ -94,11 +94,11 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, ForecastMmult)(benchmark::State& state)
   }
 }
 
-BENCHMARK_REGISTER_F(BasicKernelFixture, ForecastTriad)
+BENCHMARK_REGISTER_F(ForecastFixture, Triad)
     ->RangeMultiplier(2)
     ->Range(1 << 5, 1 << 22)
     ->Unit(benchmark::kMillisecond);
-BENCHMARK_REGISTER_F(BasicKernelFixture, ForecastMmult)
+BENCHMARK_REGISTER_F(ForecastFixture, Mmult)
     ->RangeMultiplier(2)
     ->Range(64, 64 << 7)
     ->Unit(benchmark::kMillisecond)

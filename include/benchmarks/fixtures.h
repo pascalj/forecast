@@ -11,7 +11,7 @@
 
 class BasicKernelFixture : public benchmark::Fixture {
 public:
-  BasicKernelFixture() : devices(get_devices()), ctx(devices.front()), queue(ctx), scheduler(&ctx) {}
+  BasicKernelFixture() : devices(get_devices()), ctx(devices.front()), queue(ctx) {}
 
   void SetUp(const ::benchmark::State&) {
   }
@@ -57,26 +57,20 @@ public:
   std::vector<cl::Device> devices;
   cl::Context ctx;
   cl::CommandQueue queue;
-  forecast::Scheduler scheduler;
   std::unordered_map<std::string, Binary>      binaries;
   std::unordered_map<std::string, cl::Program> programs;
   std::unordered_map<std::string, cl::Kernel>  kernels;
 };
 
-class ConfigFixture : public benchmark::Fixture {
+class ForecastFixture : public BasicKernelFixture {
 public:
-  ConfigFixture() : ctx(get_devices().front()), queue(ctx) {}
-
-  void SetUp(const ::benchmark::State&) {
+  ForecastFixture()
+    : BasicKernelFixture()
+    , scheduler(&ctx)
+  {
   }
 
-  void TearDown(const ::benchmark::State&) {
-    queue.finish();
-  }
-
-  std::vector<forecast::Configuration> configs;
-  cl::Context                          ctx;
-  cl::CommandQueue                     queue;
+  forecast::Scheduler scheduler;
 };
 
 template<typename T, cl_mem_flags mode = CL_MEM_READ_WRITE>

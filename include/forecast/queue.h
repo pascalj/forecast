@@ -72,12 +72,13 @@ public:
 
 
       {
-        std::lock_guard<std::mutex> lg(_m);
+        std::unique_lock<std::mutex> lg(_m);
         auto finished_task = std::move(_tasks.front());
         finished_task.finished_now();
         _tasks.pop_front();
-        _clb(finished_task);
         _working = false;
+        lg.unlock();
+        _clb(finished_task);
         debug("<- Task {}", task.id());
       }
       _cv.notify_all();

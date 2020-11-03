@@ -7,23 +7,26 @@
 #include <thread>
 #include <vector>
 
+#include "spdlog/spdlog.h"
+#include "spdlog/sinks/basic_file_sink.h"
+
 #include "configuration.h"
 #include "task.h"
 
-namespace forecast {
-class Scheduler {
-public:
-  Scheduler(cl::Context* ctx)
-    : _ctx(ctx)
-    , _current_config(0)
-    , _current_id(0)
+namespace forecast { class Scheduler { public: Scheduler(cl::Context* ctx) :
+  _ctx(ctx) , _current_config(nullptr) , _current_id(0) ,
+    _logger(std::make_unique<spdlog::logger>("file_logger",
+          std::make_unique<spdlog::sinks::basic_file_sink_st>("logs/scheduler.csv", true)))
   {
+    _logger->set_pattern("%v");
+    _logger->info(
+        "id, config, kernel, flops, online, offline, log_online, actual");
   }
 
   void reset() {
     _queues.clear();
     _models.clear();
-    _current_config = 0;
+    _current_config = nullptr;
     _current_id     = 0;
   }
 
@@ -86,30 +89,47 @@ public:
   void print_costs() const {
     float cost = 0;
     for(auto& queue : _queues) {
-      cost += _models.at(_current_config->bitstream()).cost(queue.second.tasks());
+      cost +=
+          _models.at(_current_config->bitstream()).cost(queue.second.tasks());
     }
     info("Cost: {}", cost);
   }
 
   void task_done(Task t) {
-      auto params =
-          kernel_params(_current_config->bitstream(), t.function_name());
-      const auto  total      = t.global()[0] * t.global()[1];
-      auto        total_flop = params.flop(total);
-      Measurement measurement{
-          static_cast<double>(t.duration().count()), total_flop};
-      auto new_params = _models.at(_current_config->bitstream())
-                            .add_measurement(t, measurement);
-      auto predicted = new_params.alpha + new_params.beta * total_flop;
-      info("{}, {}, {}, {}", t.id(), total_flop, predicted, t.duration().count());
+    auto params =
+        kernel_params(_current_config->bitstream(), t.function_name());
+    const auto  total      = t.global()[0] * t.global()[1];
+    auto        total_flop = params.flop(total);
+    auto& model = _models.at(_current_config->bitstream());
+    Measurement measurement{t.duration().count(), total_flop};
+    model.add_measurement(t, measurement);
+    auto linreg  = model.linreg(t);
+    auto online  = linreg.alpha + linreg.beta * total_flop;
+    info("alpha: {}, beta: {}", linreg.alpha, linreg.beta);
+    auto offline = model.cost(t);
+    auto simple_linreg = model.simple_linreg(t);
+    auto hybrid = model.offline_alpha + simple_linreg.beta * total_flop;
+
+    _logger->info(
+        "{}, {}, {}, {}, {}, {}, {}, {}",
+        t.id(),
+        _current_config->bitstream(),
+        t.function_name(),
+        total_flop,
+        online,
+        offline,
+        hybrid,
+        t.duration().count());
   }
 
 private:
   cl::Context*                         _ctx;
   std::map<std::string, Configuration> _configs;
   std::map<std::string, Model>         _models;
+
   Configuration*                       _current_config;
   uint64_t                             _current_id;
   std::map<std::string, Queue>         _queues;
+  std::unique_ptr<spdlog::logger>              _logger;
 };
 }
