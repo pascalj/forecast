@@ -5,6 +5,7 @@
 #include <log.h>
 #include <util.h>
 #include <forecast/scheduler.h>
+#include <benchmarks/fft.h>
 
 // Benchmark overhead of forecast
 BENCHMARK_DEFINE_F(ForecastFixture, Triad)(benchmark::State& state)
@@ -94,6 +95,109 @@ BENCHMARK_DEFINE_F(ForecastFixture, Mmult)(benchmark::State& state)
   }
 }
 
+BENCHMARK_DEFINE_F(ForecastFixture, FFT1D)(benchmark::State& state)
+{
+  const size_t  fft_iterations = state.range(0);
+  constexpr bool inverse        = false;
+
+  float2 *h_inData, *h_outData;
+  double2 *h_verify;
+  h_inData = (float2 *)aligned_alloc(64, sizeof(float2) * N * fft_iterations);
+  h_outData = (float2 *)aligned_alloc(64, sizeof(float2) * N * fft_iterations);
+  h_verify = (double2 *)aligned_alloc(64, sizeof(double2) * N * fft_iterations);
+  if (!(h_inData && h_outData && h_verify)) {
+    state.SkipWithError( "ERROR: Couldn't create host buffers\n");
+    return;
+  }
+
+  assert(fft_iterations <= std::numeric_limits<int>().max());
+  for (int i = 0; i < static_cast<int>(fft_iterations); i++) {
+    for (int j = 0; j < N; j++) {
+      h_verify[coord(i, j)].x = h_inData[coord(i, j)].x = (float)((double)rand() / (double)RAND_MAX);
+      h_verify[coord(i, j)].y = h_inData[coord(i, j)].y = (float)((double)rand() / (double)RAND_MAX);
+    }
+  }
+
+  cl_int status;
+  auto d_inData = cl::Buffer(ctx, CL_MEM_READ_WRITE, sizeof(float2) * N * fft_iterations, NULL, &status);
+  cl_ok(status);
+  auto d_outData = cl::Buffer(ctx, CL_MEM_READ_WRITE, sizeof(float2) * N * fft_iterations, NULL, &status);
+  cl_ok(status);
+  cl_ok(queue.enqueueWriteBuffer(d_inData, CL_TRUE, 0, sizeof(float2) * N * fft_iterations, h_inData));
+  int inverse_int = inverse;
+
+  scheduler.add_config("fft1d");
+
+  forecast::KernelGen create_fetch =
+      [&d_inData](const cl::Program &prg, const std::string &kernel_name) {
+        int        err = 0;
+        cl::Kernel kernel(prg, kernel_name.c_str(), &err);
+        cl_ok(err);
+        kernel.setArg(0, d_inData);
+        return kernel;
+      };
+
+  forecast::KernelGen create_fft1d = [&d_outData, &fft_iterations, &inverse_int](
+                                         const cl::Program &prg,
+                                         const std::string &kernel_name) {
+    int err = 0;
+    cl::Kernel kernel(prg, kernel_name.c_str(), &err);
+    cl_ok(err);
+    cl_ok(kernel.setArg(0, d_outData));
+    cl_ok(kernel.setArg(1, fft_iterations));
+    cl_ok(kernel.setArg(2, inverse_int));
+    return kernel;
+  };
+
+  for(auto _ : state) {
+    // Launch the kernel - we launch a single work item hence enqueue a task
+    auto ls = cl::NDRange{N/8};
+    auto gs = cl::NDRange{fft_iterations * ls[0]};
+    scheduler.add_task(forecast::Task{"fetch", create_fetch, forecast::TaskDims{}});
+    scheduler.add_task(forecast::Task{"fft1d", create_fft1d, forecast::TaskDims{gs, ls}});
+
+    scheduler.finish();
+  }
+  
+  // Copy results from device to host
+  cl_ok(queue.enqueueReadBuffer(d_outData, CL_TRUE, 0, sizeof(float2) * N * fft_iterations, h_outData));
+
+  // TODO: check
+  const double gflop = 5 * N * (log((float)N) / log((float)2)) *
+                       fft_iterations * state.iterations();
+
+  // Pick randomly a few iterations and check SNR
+  double fpga_snr = 200;
+  for (size_t i = 0; i < fft_iterations; i+= rand() % 20 + 1) {
+    fourier_transform_gold(inverse, 12, h_verify + coord(i, 0));
+    double mag_sum = 0;
+    double noise_sum = 0;
+    for (int j = 0; j < N; j++) {
+      double magnitude =
+          (double)h_verify[coord(i, j)].x * (double)h_verify[coord(i, j)].x +
+          (double)h_verify[coord(i, j)].y * (double)h_verify[coord(i, j)].y;
+      double noise =
+          (h_verify[coord(i, j)].x - (double)h_outData[coord(i, j)].x) *
+              (h_verify[coord(i, j)].x - (double)h_outData[coord(i, j)].x) +
+          (h_verify[coord(i, j)].y - (double)h_outData[coord(i, j)].y) *
+              (h_verify[coord(i, j)].y - (double)h_outData[coord(i, j)].y);
+
+      mag_sum += magnitude;
+      noise_sum += noise;
+    }
+    double db = 10 * log(mag_sum / noise_sum) / log(10.0);
+    // find minimum SNR across all iterations
+    if (db < fpga_snr) fpga_snr = db;
+  }
+  if(fpga_snr <= 125) {
+    state.SkipWithError("Validation failed, SNR too high.");
+  } else {
+    debug("Signal to noise ratio on output sample: {} --> {}", fpga_snr, fpga_snr > 125 ? "PASSED" : "FAILED");
+  }
+  state.counters["FLOPs"] =
+      benchmark::Counter(gflop, benchmark::Counter::kIsRate);
+}
+
 BENCHMARK_REGISTER_F(ForecastFixture, Triad)
     ->RangeMultiplier(2)
     ->Range(1 << 5, 1 << 22)
@@ -101,5 +205,10 @@ BENCHMARK_REGISTER_F(ForecastFixture, Triad)
 BENCHMARK_REGISTER_F(ForecastFixture, Mmult)
     ->RangeMultiplier(2)
     ->Range(64, 64 << 7)
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_REGISTER_F(ForecastFixture, FFT1D)
+    ->RangeMultiplier(2)
+    ->Range(1 << 5, 1 << 22)
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();
