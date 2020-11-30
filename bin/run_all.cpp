@@ -10,6 +10,7 @@
 #include <benchmarks/fft.h>
 
 int main(int argc, char **argv) {
+  std::srand(std::time(0));
   spdlog::set_pattern("[%H:%M:%S] [%^%L%$] [%t] %v");
   spdlog::cfg::load_argv_levels(argc, argv);
   benchmark::Initialize(&argc, argv);

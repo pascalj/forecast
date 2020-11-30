@@ -53,7 +53,6 @@ namespace forecast { class Scheduler { public: Scheduler(cl::Context* ctx) :
                           std::move(clb))
                       .first->second;
     queue.enqueue(std::move(task));
-    print_costs();
   }
 
   Configuration& current_config()
@@ -86,15 +85,6 @@ namespace forecast { class Scheduler { public: Scheduler(cl::Context* ctx) :
         });
   }
 
-  void print_costs() const {
-    float cost = 0;
-    for(auto& queue : _queues) {
-      cost +=
-          _models.at(_current_config->bitstream()).cost(queue.second.tasks());
-    }
-    info("Cost: {}", cost);
-  }
-
   void task_done(Task t) {
     auto params =
         kernel_params(_current_config->bitstream(), t.function_name());
@@ -105,7 +95,6 @@ namespace forecast { class Scheduler { public: Scheduler(cl::Context* ctx) :
     model.add_measurement(t, measurement);
     auto linreg  = model.linreg(t);
     auto online  = linreg.alpha + linreg.beta * total_flop;
-    info("alpha: {}, beta: {}", linreg.alpha, linreg.beta);
     auto offline = model.cost(t);
     auto simple_linreg = model.simple_linreg(t);
     auto hybrid = model.offline_alpha + simple_linreg.beta * total_flop;
@@ -130,6 +119,6 @@ private:
   Configuration*                       _current_config;
   uint64_t                             _current_id;
   std::map<std::string, Queue>         _queues;
-  std::unique_ptr<spdlog::logger>              _logger;
+  std::unique_ptr<spdlog::logger>      _logger;
 };
 }

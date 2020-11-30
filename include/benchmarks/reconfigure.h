@@ -11,6 +11,7 @@
 BENCHMARK_DEFINE_F(BasicKernelFixture, SameKernel)(benchmark::State& state)
 {
   auto hello_world_kernel = kernel("hello_world", "hello_world");
+  auto& queue = clstate.queue;
 
   cl_int thread_id = 1;
 
@@ -38,6 +39,7 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, SameProgram)(benchmark::State& state)
 
   auto empty1_kernel = kernel("multi_empty", "empty1");
   auto empty2_kernel = kernel("multi_empty", "empty2");
+  auto& queue = clstate.queue;
 
   for(auto _ : state) {
     state.PauseTiming();
@@ -60,6 +62,7 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, ReconfigureEmpty)(benchmark::State& state
 
   auto empty_kernel = kernel("empty", "empty");
   auto hello_world_kernel = kernel("hello_world", "hello_world");
+  auto& queue = clstate.queue;
 
   cl_int thread_id = 1;
   hello_world_kernel.setArg(0, thread_id);
@@ -85,6 +88,7 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, RunSerial)(benchmark::State& state)
 
   auto empty_kernel = kernel("empty", "empty");
   auto hello_world_kernel = kernel("hello_world", "hello_world");
+  auto& queue = clstate.queue;
 
   cl_int thread_id = 1;
   hello_world_kernel.setArg(0, thread_id);
@@ -103,6 +107,8 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, RunParallel)(benchmark::State& state)
 
   auto empty_kernel = kernel("empty", "empty");
   auto hello_world_kernel = kernel("hello_world", "hello_world");
+  auto& queue = clstate.queue;
+  auto& ctx = clstate.ctx;
 
   cl_int thread_id = 1;
   hello_world_kernel.setArg(0, thread_id);

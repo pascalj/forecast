@@ -21,13 +21,15 @@ static int coord(int iteration, int i);
 void fourier_transform_gold(bool inverse, const int lognr_points, double2 *data);
 void fourier_stage(int lognr_points, double2 *data);
 
-constexpr int N              = (1 << 12);  // must match .cl file
+constexpr int N              = (1 << 14);  // must match .cl file
 
 BENCHMARK_DEFINE_F(BasicKernelFixture, FFT1D)(benchmark::State& state)
 {
 
   const size_t  fft_iterations = state.range(0);
   constexpr bool inverse        = false;
+  auto& ctx = clstate.ctx;
+  auto& queue = clstate.queue;
 
   float2 *h_inData, *h_outData;
   double2 *h_verify;
@@ -62,8 +64,8 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, FFT1D)(benchmark::State& state)
   int inverse_int = inverse;
 
   // Set the kernel arguments
-  auto kernel0 = kernel("fft1d", "fft1d");
-  auto kernel1 = kernel("fft1d", "fetch");
+  auto kernel0 = kernel("fft1d_14", "fft1d");
+  auto kernel1 = kernel("fft1d_14", "fetch");
   cl_ok(kernel1.setArg(0, sizeof(cl_mem), (void *)&d_inData));
   cl_ok(kernel0.setArg(0, sizeof(cl_mem), (void *)&d_outData));
   cl_ok(kernel0.setArg(1, sizeof(cl_int), (void *)&fft_iterations));

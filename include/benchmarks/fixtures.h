@@ -9,14 +9,12 @@
 #include <vector>
 #include <sstream>
 
-class BasicKernelFixture : public benchmark::Fixture {
+class ClState {
 public:
-  BasicKernelFixture() : devices(get_devices()), ctx(devices.front()), queue(ctx) {}
+  ClState() : devices(get_devices()), ctx(devices.front()), queue(ctx) {}
+  ~ClState() { clear_up(); }
 
-  void SetUp(const ::benchmark::State&) {
-  }
-
-  void TearDown(const ::benchmark::State&) {
+  void clear_up() {
     queue.finish();
     kernels.clear();
     programs.clear();
@@ -62,15 +60,97 @@ public:
   std::unordered_map<std::string, cl::Kernel>  kernels;
 };
 
+class BasicKernelFixture : public benchmark::Fixture {
+public:
+
+  void SetUp(const ::benchmark::State&) {
+  }
+
+  void TearDown(const ::benchmark::State&) {
+    clstate.clear_up();
+  }
+  cl::Kernel& kernel(const std::string& prog, const std::string& kern_name) {
+    return clstate.kernel(prog, kern_name);
+  }
+
+  cl::Program& program(const std::string& prog_name) {
+    return clstate.program(prog_name);
+  }
+
+  Binary& binary(const std::string& bin_name) {
+    return clstate.binary(bin_name);
+  }
+
+
+  ClState clstate;
+};
+
+
+class BitstreamFixture : public BasicKernelFixture {
+public:
+  BitstreamFixture(const std::string& bitstream)
+    : BasicKernelFixture(), _bitstream(bitstream)
+  {
+  }
+
+  cl::Kernel& kernel(const std::string& kern_name) {
+    return BasicKernelFixture::kernel(_bitstream, kern_name);
+  }
+  std::string _bitstream;
+};
+
+struct MmultFD : public BitstreamFixture {
+  static constexpr char bitstream[] = "mmult_f_d";
+};
+
+struct MmultFD2 {
+  static constexpr char bitstream[] = "mmult_f_d2";
+};
+
 class ForecastFixture : public BasicKernelFixture {
 public:
   ForecastFixture()
     : BasicKernelFixture()
-    , scheduler(&ctx)
+    , scheduler(&clstate.ctx)
   {
   }
 
   forecast::Scheduler scheduler;
+};
+
+class RandomTasks {
+public:
+  void add_kernel(float prob, forecast::Task&& task, std::function<forecast::TaskDims()> size_gen)
+  {
+    _tasks.emplace_back(std::move(task));
+    float init = _offsets.size() > 0 ? _offsets.back() : 0;
+    _offsets.emplace_back(init + prob);
+    _size_gens.emplace_back(size_gen);
+  }
+
+  forecast::Task next_task() {
+    assert(_offsets.size() > 0);
+    assert(
+        std::abs(_offsets.back() - 1.0f) <=
+        std::numeric_limits<float>::epsilon());
+
+    float random =
+        static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
+    auto  selected_it =
+        std::find_if(_offsets.begin(), _offsets.end(), [random](auto offset) {
+          return offset > random;
+        });
+    auto task_index = std::distance(_offsets.begin(), selected_it);
+    auto task = forecast::Task{_tasks[task_index]};
+    task.set_dims(_size_gens[task_index]());
+    debug("Generated task: {}", task);
+    return task;
+  }
+
+private:
+  std::vector<forecast::Task>           _tasks;
+  std::vector<float>                    _offsets;
+  std::vector<std::function<forecast::TaskDims()>>  _size_gens;
 };
 
 template<typename T, cl_mem_flags mode = CL_MEM_READ_WRITE>

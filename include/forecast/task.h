@@ -4,6 +4,7 @@
 #include <chrono>
 #include <deque>
 #include <functional>
+#include "spdlog/fmt/ostr.h"
 
 namespace forecast {
 
@@ -23,6 +24,14 @@ struct TaskDims {
     : global(g)
     , local(l)
   {
+  }
+
+  template <typename OStream>
+  friend OStream& operator<<(OStream& os, const TaskDims& c)
+  {
+    return os << "<" << c.global[0] << "," << c.global[1] << ","
+              << c.global[2] << "><" << c.local[0] << "," << c.local[1]
+              << "," << c.local[2] << ">";
   }
 
   cl::NDRange global;
@@ -91,6 +100,10 @@ public:
     return _dims.offset;
   }
 
+  void set_dims(TaskDims dims) {
+    _dims = dims;
+  }
+
   cl::NDRange global() const {
     return _dims.global;
   }
@@ -101,6 +114,12 @@ public:
 
   std::chrono::duration<double> duration() const {
     return _finished_at - _enqueued_at;
+  }
+
+  template <typename OStream>
+  friend OStream& operator<<(OStream& os, const Task& t)
+  {
+    return os << t.function_name() << t._dims;
   }
 
 private:

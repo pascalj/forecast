@@ -12,7 +12,7 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, Empty)(benchmark::State& state)
 
   for (auto _ : state) {
     cl::Event kernel_done;
-    queue.enqueueTask(empty, NULL, &kernel_done);
+    clstate.queue.enqueueTask(empty, NULL, &kernel_done);
     kernel_done.wait();
   }
 }
@@ -23,22 +23,22 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, VectorTriad)(benchmark::State& state)
   using value_t   = float;
   size_t buf_size = state.range(0);
 
-  Buffers<4, value_t> buffers(ctx, buf_size);
-  buffers.fill_all(queue, {0, 2, 3, 4});
+  Buffers<4, value_t> buffers(clstate.ctx, buf_size);
+  buffers.fill_all(clstate.queue, {0, 2, 3, 4});
 
   auto vector_triad = kernel("vector_triad_n1", "vector_triad1");
-	queue.finish();
+	clstate.queue.finish();
 
   for (auto _ : state) {
     cl::Event kernel_done;
     set_bufs_as_args(vector_triad, buffers);
     vector_triad.setArg(4, static_cast<unsigned long>(buf_size));
-    queue.enqueueTask(vector_triad, NULL, &kernel_done);
+    clstate.queue.enqueueTask(vector_triad, NULL, &kernel_done);
     kernel_done.wait();
   }
 
   const bool valid = buffers[0].validate(
-      queue, [](const auto& val) { return val == 2 * 3 + 4; });
+      clstate.queue, [](const auto& val) { return val == 2 * 3 + 4; });
 
   if(!valid) {
     state.SkipWithError("Validation failed.");
@@ -55,11 +55,11 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, VectorTriadParallel)(benchmark::State& st
   std::vector<Buffers<4, value_t>> buffers;
   buffers.reserve(parallelism);
   for (size_t i = 0; i < parallelism; i++) {
-    buffers.emplace_back(ctx, buf_size);
+    buffers.emplace_back(clstate.ctx, buf_size);
   }
 
   for(auto& buffer : buffers) {
-    buffer.fill_all(queue, {0, 1, 2, 3});
+    buffer.fill_all(clstate.queue, {0, 1, 2, 3});
   }
 
   std::vector<cl::Kernel> kernels;
@@ -72,7 +72,7 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, VectorTriadParallel)(benchmark::State& st
     std::stringstream ss;
     ss << "vector_triad" << kern;
     kernels.push_back(kernel(file_stream.str(), ss.str()));
-    queues.emplace_back(ctx);
+    queues.emplace_back(clstate.ctx);
   }
   unsigned long size = buf_size;
 
@@ -97,7 +97,7 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, VectorTriadParallel)(benchmark::State& st
       size_t(state.range(1)) * sizeof(value_t));
 
   for(auto& buffer : buffers) {
-    const bool valid = buffer[0].validate(queue, [](const auto& val){
+    const bool valid = buffer[0].validate(clstate.queue, [](const auto& val){
         return val == 1 * 2 + 3;
     });
     if (!valid) {
@@ -108,39 +108,36 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, VectorTriadParallel)(benchmark::State& st
 
 /**
  * Simple matrix multiplication
- *
- * Note that block_size must match the one in the cl file.
  */
-BENCHMARK_DEFINE_F(BasicKernelFixture, MatrixMult)(benchmark::State& state)
+template<typename T>
+void DGEMM(benchmark::State& state, std::string config, T)
 {
-  using value_t            = float;
+  using value_t            = T;
   const size_t  N          = state.range(0);
   constexpr int block_size = 64;  // must match .cl file
+  auto clstate = ClState();
 
   assert(N % block_size == 0);
 
-  Buffers<3, value_t> buffers(ctx, N * N);
-  buffers.fill_all(queue, {0, 2, 3});
+  Buffers<3, value_t> buffers(clstate.ctx, N * N);
+  buffers.fill_all(clstate.queue, {0, 2, 3});
 
-  auto kern = kernel("mmult_f_d2", "matrixMult");
+  std::string kernel_name = "matrixMult";
+  if(std::is_same<T, double>::value) {
+    kernel_name = "matrixMultD";
+  }
 
-  forecast::Model model("mmult_f_d2");
+  auto kern = clstate.kernel(config, kernel_name);
 
   const cl::NDRange global_work_size(N, N);
   const cl::NDRange local_work_size(block_size, block_size);
-  forecast::Task    task{
-      "matrixMult",
-      forecast::KernelGen{},
-      forecast::TaskDims{global_work_size, local_work_size}};
-
-  warn("Cost: {} s", model.cost(task));
 
   for (auto _ : state) {
     cl::Event kernel_done;
     set_bufs_as_args(kern, buffers);
     kern.setArg(3, static_cast<int>(N));
     kern.setArg(4, static_cast<int>(N));
-    queue.enqueueNDRangeKernel(
+    clstate.queue.enqueueNDRangeKernel(
         kern,
         cl::NullRange,
         global_work_size,
@@ -154,7 +151,7 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, MatrixMult)(benchmark::State& state)
   state.counters["FLOPs"] =
       benchmark::Counter(flops, benchmark::Counter::kIsRate);
 
-  bool valid = buffers[0].validate(queue, [N] (const auto& val) {
+  bool valid = buffers[0].validate(clstate.queue, [N] (const auto& val) {
     return val == 6 * N;
   });
   if (!valid) {
@@ -175,6 +172,8 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, MatrixMultTriad)(benchmark::State& state)
   constexpr int block_size = 64;  // must match .cl file
 
   assert(N % block_size == 0);
+  auto& queue = clstate.queue;
+  auto& ctx = clstate.ctx;
 
   Buffers<3, value_t> mbuf(ctx, N * N);
   Buffers<4, value_t> tbuf(ctx, triad_size);
@@ -250,12 +249,15 @@ static void MatrixTriadRanges(benchmark::internal::Benchmark* b)
  *
  * Note that block_size must match the one in the cl file.
  */
-BENCHMARK_DEFINE_F(BasicKernelFixture, MatrixMultTriadQueue)(benchmark::State& state)
+BENCHMARK_DEFINE_F(BasicKernelFixture, MatrixMultTriadQueue)
+(benchmark::State& state)
 {
   using value_t            = float;
   const size_t  N          = state.range(0);
   const size_t  triad_size = state.range(1);
   constexpr int block_size = 64;  // must match .cl file
+  auto& queue = clstate.queue;
+  auto& ctx = clstate.ctx;
 
   assert(N % block_size == 0);
 
@@ -317,7 +319,52 @@ BENCHMARK_REGISTER_F(BasicKernelFixture, VectorTriad)
 BENCHMARK_REGISTER_F(BasicKernelFixture, VectorTriadParallel)
     ->Apply(ParallelismRange)
     ->Unit(benchmark::kMillisecond);
-BENCHMARK_REGISTER_F(BasicKernelFixture, MatrixMult)
+BENCHMARK_CAPTURE(DGEMM, mmult_f_d/float, "mmult_f_d", float{0})
+    ->RangeMultiplier(2)
+    ->Range(64, 64 << 7)
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(DGEMM, mmult_f_d/double, "mmult_f_d", double{0})
+    ->RangeMultiplier(2)
+    ->Range(64, 64 << 7)
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(DGEMM, mmult_f_d2/float, "mmult_f_d2", float{0})
+    ->RangeMultiplier(2)
+    ->Range(64, 64 << 7)
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(DGEMM, mmult_f_d2/double, "mmult_f_d2", double{0})
+    ->RangeMultiplier(2)
+    ->Range(64, 64 << 7)
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(DGEMM, mmult_f_d4/float, "mmult_f_d4", float{0})
+    ->RangeMultiplier(2)
+    ->Range(64, 64 << 7)
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(DGEMM, mmult_f_d4/double, "mmult_f_d4", double{0})
+    ->RangeMultiplier(2)
+    ->Range(64, 64 << 7)
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(DGEMM, mmult_fp2_d/float, "mmult_fp2_d", float{0})
+    ->RangeMultiplier(2)
+    ->Range(64, 64 << 7)
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(DGEMM, mmult_fp2_d/double, "mmult_fp2_d", double{0})
+    ->RangeMultiplier(2)
+    ->Range(64, 64 << 7)
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(DGEMM, mmult_fp4_d/float, "mmult_fp4_d", float{0})
+    ->RangeMultiplier(2)
+    ->Range(64, 64 << 7)
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_CAPTURE(DGEMM, mmult_fp4_d/double, "mmult_fp4_d", double{0})
     ->RangeMultiplier(2)
     ->Range(64, 64 << 7)
     ->Unit(benchmark::kMillisecond)

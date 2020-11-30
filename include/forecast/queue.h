@@ -64,7 +64,6 @@ public:
       }
       auto& task  = _tasks.front();
       auto& event = pass_to_cl(task);
-      debug("Task {} started.", task.id());
       _working = true;
       lk.unlock();
 

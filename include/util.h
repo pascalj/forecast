@@ -47,9 +47,9 @@ auto get_devices(size_t req_platform = 0, size_t req_device = 0)
   for (auto &p : platforms) {
     std::vector<cl::Device> devices;
     p.getDevices(CL_DEVICE_TYPE_ALL, &devices);
-    info("Platform: {} ({} devices)", p.getInfo<CL_PLATFORM_NAME>(), devices.size());
+    debug("Platform: {} ({} devices)", p.getInfo<CL_PLATFORM_NAME>(), devices.size());
     for(auto& device : devices) {
-      info("  Device: {}", device.getInfo<CL_DEVICE_NAME>());
+      debug("  Device: {}", device.getInfo<CL_DEVICE_NAME>());
     }
   }
 

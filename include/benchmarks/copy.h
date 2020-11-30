@@ -9,6 +9,8 @@
 BENCHMARK_DEFINE_F(BasicKernelFixture, Bandwidth)(benchmark::State& state)
 {
   using value_t                 = double;
+  auto&                ctx      = clstate.ctx;
+  auto&                queue    = clstate.queue;
   size_t               buf_size = state.range(0) * 1024 * 1024;
   std::vector<value_t> host_buf(buf_size, value_t{1});
   cl::Buffer buf(ctx, CL_MEM_READ_WRITE, buf_size * sizeof(value_t));
@@ -36,6 +38,8 @@ BENCHMARK_DEFINE_F(BasicKernelFixture, ReconfigureCopyOverlap)
 {
   using value_t                 = double;
   const size_t         buf_size = state.range(0) * 1024 * 1024;
+  auto&                ctx      = clstate.ctx;
+  auto&                queue    = clstate.queue;
   std::vector<value_t> host_buf(buf_size);
   cl::Buffer buf(ctx, CL_MEM_READ_WRITE, buf_size * sizeof(value_t));
 

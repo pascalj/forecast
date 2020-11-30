@@ -12,6 +12,8 @@ BENCHMARK_DEFINE_F(ForecastFixture, Triad)(benchmark::State& state)
 {
   using value_t   = float;
   size_t buf_size = state.range(0);
+  auto& queue = clstate.queue;
+  auto& ctx = clstate.ctx;
 
   Buffers<4, value_t> buffers(ctx, buf_size);
   buffers.fill_all(queue, {0, 2, 3, 4});
@@ -26,6 +28,7 @@ BENCHMARK_DEFINE_F(ForecastFixture, Triad)(benchmark::State& state)
     set_bufs_as_args(kernel, buffers);
     return kernel;
   };
+
 
   for (auto _ : state) {
     for(int i = 0; i < 10; i++) {
@@ -50,6 +53,8 @@ BENCHMARK_DEFINE_F(ForecastFixture, Mmult)(benchmark::State& state)
   using value_t            = float;
   const size_t  N          = state.range(0);
   constexpr int block_size = 64;  // must match .cl file
+  auto& queue = clstate.queue;
+  auto& ctx = clstate.ctx;
 
   assert(N % block_size == 0);
 
@@ -58,6 +63,7 @@ BENCHMARK_DEFINE_F(ForecastFixture, Mmult)(benchmark::State& state)
 
   scheduler.add_config("mmult_f_d2");
   scheduler.add_config("mmult_f_d");
+
 
   forecast::KernelGen create_mmult =
       [&buffers, N](const cl::Program& prg, const std::string& kernel_name) {
@@ -72,14 +78,11 @@ BENCHMARK_DEFINE_F(ForecastFixture, Mmult)(benchmark::State& state)
   const cl::NDRange local_work_size(block_size, block_size);
   for (auto _ : state) {
     for (int a = 0; a < 10; a++) {
-    for (int i = 0; i < static_cast<int>(N) / 64; i++) {
-      const cl::NDRange global_work_size(
-          N - 64 * i, N - 64 * i);
+      const cl::NDRange global_work_size(N, N);
       scheduler.add_task(forecast::Task{
           "matrixMult",
           create_mmult,
           forecast::TaskDims{global_work_size, local_work_size}});
-    }
     }
     scheduler.wait();
   }
@@ -95,10 +98,78 @@ BENCHMARK_DEFINE_F(ForecastFixture, Mmult)(benchmark::State& state)
   }
 }
 
+BENCHMARK_DEFINE_F(ForecastFixture, MmultRandom)(benchmark::State& state)
+{
+  const size_t  N          = 4096;
+  constexpr int block_size = 64;  // must match .cl file
+  auto&         queue      = clstate.queue;
+  auto&         ctx        = clstate.ctx;
+
+  assert(N % block_size == 0);
+
+  Buffers<3, float> f_buffers(ctx, N * N);
+  Buffers<3, double> d_buffers(ctx, N * N);
+  f_buffers.fill_all(queue, {0, 2, 3});
+  d_buffers.fill_all(queue, {0, 2, 3});
+
+  scheduler.add_config("mmult_f_d2");
+  scheduler.add_config("mmult_f_d");
+
+
+  forecast::KernelGen create_mmult_f =
+      [&f_buffers, N](const cl::Program& prg, const std::string& kernel_name) {
+        int        err = 0;
+        cl::Kernel kernel(prg, kernel_name.c_str(), &err);
+        set_bufs_as_args(kernel, f_buffers);
+        kernel.setArg(3, static_cast<int>(N));
+        kernel.setArg(4, static_cast<int>(N));
+        return kernel;
+      };
+
+  forecast::KernelGen create_mmult_d =
+      [&d_buffers, N](const cl::Program& prg, const std::string& kernel_name) {
+        int        err = 0;
+        cl::Kernel kernel(prg, kernel_name.c_str(), &err);
+        set_bufs_as_args(kernel, d_buffers);
+        kernel.setArg(3, static_cast<int>(N));
+        kernel.setArg(4, static_cast<int>(N));
+        return kernel;
+      };
+
+
+  RandomTasks random_tasks;
+  const cl::NDRange global_work_size(N, N);
+  const cl::NDRange local_work_size(block_size, block_size);
+  auto size_gen = [global_work_size, local_work_size]() {
+    return forecast::TaskDims{global_work_size, local_work_size};
+  };
+  random_tasks.add_kernel(0.6f, forecast::Task("matrixMult", create_mmult_f), size_gen);
+  random_tasks.add_kernel(0.4f, forecast::Task("matrixMultD", create_mmult_d), size_gen);
+
+  for (auto _ : state) {
+    for (int a = 0; a < 10; a++) {
+      scheduler.add_task(random_tasks.next_task());
+    }
+    scheduler.wait();
+  }
+
+  const unsigned long long flops = N * N * N * 2 * state.iterations() * 10;
+  state.counters["FLOPs"] =
+      benchmark::Counter(flops, benchmark::Counter::kIsRate);
+
+  bool valid = f_buffers[0].validate(
+      queue, [N](const auto& val) { return val == 6 * N; });
+  if (!valid) {
+    state.SkipWithError("Validation failed.");
+  }
+}
+
 BENCHMARK_DEFINE_F(ForecastFixture, FFT1D)(benchmark::State& state)
 {
   const size_t  fft_iterations = state.range(0);
   constexpr bool inverse        = false;
+  auto& queue = clstate.queue;
+  auto& ctx = clstate.ctx;
 
   float2 *h_inData, *h_outData;
   double2 *h_verify;
@@ -205,6 +276,9 @@ BENCHMARK_REGISTER_F(ForecastFixture, Triad)
 BENCHMARK_REGISTER_F(ForecastFixture, Mmult)
     ->RangeMultiplier(2)
     ->Range(64, 64 << 7)
+    ->Unit(benchmark::kMillisecond)
+    ->UseRealTime();
+BENCHMARK_REGISTER_F(ForecastFixture, MmultRandom)
     ->Unit(benchmark::kMillisecond)
     ->UseRealTime();
 BENCHMARK_REGISTER_F(ForecastFixture, FFT1D)
