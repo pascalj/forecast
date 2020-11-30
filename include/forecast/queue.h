@@ -17,9 +17,9 @@ class Queue {
 public:
   Queue(const cl::Context& ctx, cl::Program* program, TaskCallback &&clb)
     : _program(program)
-    , _thread(std::bind(&Queue::queue_loop, this))
     , _command_queue(cl::CommandQueue(ctx))
     , _clb(std::move(clb))
+    , _thread(std::bind(&Queue::queue_loop, this))
   {
   }
   Queue(cl::CommandQueue&& command_queue) = delete;
@@ -114,7 +114,6 @@ private:
 
 private:
   cl::Program*            _program;
-  std::thread             _thread;
   std::condition_variable _cv;
   std::mutex              _m;
   cl::CommandQueue        _command_queue;
@@ -122,5 +121,6 @@ private:
   bool                    _working = false;
   Tasks                   _tasks;
   TaskCallback            _clb;
+  std::thread             _thread;
 };
 }
